@@ -1,21 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <title>Моё расписание Edvibe</title>
-    <link rel="stylesheet" href="style.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kitya Calendar — учёт учеников</title>
   </head>
   <body>
-    <h1>Расписание преподавателя</h1>
-
-    <form id="loginForm">
-      <input type="text" id="login" placeholder="Логин" required />
-      <input type="password" id="password" placeholder="Пароль" required />
-      <button type="submit">Войти и получить расписание</button>
-    </form>
-
-    <div id="scheduleContainer"></div>
-
-    <script src="script.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
