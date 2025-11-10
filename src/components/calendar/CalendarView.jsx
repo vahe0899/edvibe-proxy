@@ -107,6 +107,9 @@ export default function CalendarView({onEditLesson}) {
                       {event.student?.name ?? "Неизвестный ученик"}
                     </span>
                     <span>{formatCurrency(event.price)}</span>
+                    <span className={`chip ${statusChipClass(event.status)} calendar-event__status`}>
+                      {statusLabel(event.status)}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -126,5 +129,27 @@ function formatCurrency(amount) {
     currency: "RUB",
     maximumFractionDigits: 0
   }).format(amount);
+}
+
+function statusLabel(status) {
+  switch (status) {
+    case "completed":
+      return "Проведён";
+    case "cancelled":
+      return "Отменён";
+    default:
+      return "Запланирован";
+  }
+}
+
+function statusChipClass(status) {
+  switch (status) {
+    case "completed":
+      return "success";
+    case "cancelled":
+      return "danger";
+    default:
+      return "";
+  }
 }
 

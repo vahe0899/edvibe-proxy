@@ -20,7 +20,9 @@ export default function EditLessonModal({lessonId, onClose}) {
   const [duration, setDuration] = useState(lesson?.durationMinutes ?? 60);
   const [price, setPrice] = useState(lesson?.price ?? 0);
   const [notes, setNotes] = useState(lesson?.notes ?? "");
-  const [status, setStatus] = useState(lesson?.status ?? "scheduled");
+  const [status, setStatus] = useState(
+    lesson?.status === "cancelled" ? "scheduled" : lesson?.status ?? "scheduled"
+  );
   const [refunded, setRefunded] = useState(lesson?.refunded ?? false);
 
   const availablePackages = useMemo(() => {
@@ -46,7 +48,7 @@ export default function EditLessonModal({lessonId, onClose}) {
     setDuration(lesson.durationMinutes);
     setPrice(lesson.price);
     setNotes(lesson.notes ?? "");
-    setStatus(lesson.status);
+    setStatus(lesson.status === "cancelled" ? "scheduled" : lesson.status);
     setRefunded(lesson.refunded);
   }, [lesson]);
 
@@ -196,7 +198,6 @@ export default function EditLessonModal({lessonId, onClose}) {
           <select value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="scheduled">Запланирован</option>
             <option value="completed">Проведён</option>
-            <option value="cancelled">Отменён</option>
           </select>
         </label>
 

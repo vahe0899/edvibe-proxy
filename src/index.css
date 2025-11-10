@@ -48,6 +48,46 @@ body {
   gap: 24px;
 }
 
+.dashboard-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.segmented-control {
+  display: inline-flex;
+  background: rgba(76, 82, 255, 0.08);
+  border-radius: 999px;
+  padding: 4px;
+  border: 1px solid rgba(76, 82, 255, 0.16);
+  gap: 4px;
+}
+
+.segmented-control__button {
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.segmented-control__button:hover {
+  color: var(--color-primary);
+}
+
+.segmented-control__button.is-active {
+  background: #fff;
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+
 .app-nav {
   background: #fff;
   border-bottom: 1px solid var(--color-border);
@@ -687,6 +727,7 @@ textarea:focus {
   text-align: left;
   font: inherit;
   color: inherit;
+  align-content: start;
   transition:
     transform var(--transition-fast),
     box-shadow var(--transition-fast);
@@ -709,6 +750,10 @@ textarea:focus {
 
 .calendar-event__student {
   font-weight: 600;
+}
+
+.calendar-event__status {
+  justify-self: start;
 }
 
 .calendar-controls {
@@ -903,6 +948,20 @@ textarea:focus {
 @media (max-width: 960px) {
   .panel {
     border-radius: var(--radius-md);
+  }
+
+  .dashboard-controls {
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .segmented-control {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .segmented-control__button {
+    flex: 1 1 0;
   }
 
   .panel-header {
