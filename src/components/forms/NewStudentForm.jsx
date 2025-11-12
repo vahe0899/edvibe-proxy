@@ -2,14 +2,13 @@ import {useState} from "react";
 import {useAppState} from "../../state/AppStateContext.jsx";
 import {useToasts} from "../../state/ToastContext.jsx";
 
-const defaultPackage = () => ({
-  id: crypto.randomUUID ? crypto.randomUUID() : `pkg-${Date.now()}-${Math.random()}`,
-  count: 10,
-  price: 1600
-});
-
-const packageValidator = (pkg) =>
-  Number.isFinite(pkg.count) && pkg.count > 0 && Number.isFinite(pkg.price) && pkg.price > 0;
+const parseCurrency = (value, fallback = 0) => {
+  if (typeof value === "number") return value;
+  if (!value) return fallback;
+  const normalized = value.toString().replace(/\s/g, "").replace(",", ".");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : fallback;
+};
 
 export default function NewStudentForm() {
   const {
@@ -19,13 +18,13 @@ export default function NewStudentForm() {
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
   const [notes, setNotes] = useState("");
-  const [packages, setPackages] = useState([defaultPackage()]);
+  const [balance, setBalance] = useState("");
 
   const resetForm = () => {
     setName("");
     setContact("");
     setNotes("");
-    setPackages([defaultPackage()]);
+    setBalance("");
   };
 
   const handleSubmit = (event) => {
@@ -36,41 +35,17 @@ export default function NewStudentForm() {
       return;
     }
 
-    const preparedPackages = packages
-      .map((pkg) => ({
-        count: Number(pkg.count),
-        price: Math.round(Number(pkg.price) * 100) / 100
-      }))
-      .filter(packageValidator);
-
-    if (preparedPackages.length === 0) {
-      toasts.addWarning("Добавьте хотя бы один корректный пакет уроков.");
-      return;
-    }
+    const initialBalance = Math.round(parseCurrency(balance, 0) * 100) / 100;
 
     const student = addStudent({
       name: trimmedName,
       contact,
       notes,
-      packages: preparedPackages
+      balance: initialBalance
     });
 
     toasts.addSuccess(`Ученик «${student.name}» добавлен.`);
     resetForm();
-  };
-
-  const handleAddPackage = () => {
-    setPackages((prev) => [...prev, defaultPackage()]);
-  };
-
-  const handlePackageChange = (id, key, value) => {
-    setPackages((prev) =>
-      prev.map((pkg) => (pkg.id === id ? {...pkg, [key]: value} : pkg))
-    );
-  };
-
-  const handleRemovePackage = (id) => {
-    setPackages((prev) => (prev.length <= 1 ? prev : prev.filter((pkg) => pkg.id !== id)));
   };
 
   return (
@@ -100,6 +75,17 @@ export default function NewStudentForm() {
                 placeholder="Телефон, Telegram"
               />
             </label>
+            <label className="form-field">
+              <span>Стартовый баланс, ₽</span>
+              <input
+                type="number"
+                min="0"
+                step="50"
+                value={balance}
+                onChange={(event) => setBalance(event.target.value)}
+                placeholder="Например, 1600"
+              />
+            </label>
             <label className="form-field form-field-wide">
               <span>Заметки</span>
               <textarea
@@ -109,57 +95,6 @@ export default function NewStudentForm() {
                 placeholder="Уровень, пожелания, особенности"
               />
             </label>
-          </div>
-
-          <div className="packages-block">
-            <div className="packages-header">
-              <h3>Пакеты уроков</h3>
-              <button type="button" className="btn secondary" onClick={handleAddPackage}>
-                Добавить пакет
-              </button>
-            </div>
-            <div className="packages-rows">
-              {packages.map((pkg) => (
-                <div className="package-row" key={pkg.id}>
-                  <label>
-                    <span>Количество</span>
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={pkg.count}
-                      onChange={(event) =>
-                        handlePackageChange(pkg.id, "count", Number(event.target.value))
-                      }
-                    />
-                  </label>
-                  <label>
-                    <span>Цена, ₽</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="50"
-                      value={pkg.price}
-                      onChange={(event) =>
-                        handlePackageChange(pkg.id, "price", Number(event.target.value))
-                      }
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="btn ghost package-remove-btn"
-                    onClick={() => handleRemovePackage(pkg.id)}
-                    title="Удалить пакет"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-            <p className="form-hint">
-              Добавьте один или несколько пакетов: количество уроков и цена за один урок.
-              Остаток будет списываться автоматически при записи занятия.
-            </p>
           </div>
 
           <div className="form-actions">

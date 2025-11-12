@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useState} from "react";
 import {createPortal} from "react-dom";
 import {format} from "date-fns";
 import {useAppState} from "../../state/AppStateContext.jsx";
@@ -7,28 +7,21 @@ import {useToasts} from "../../state/ToastContext.jsx";
 export default function EditLessonModal({lessonId, onClose}) {
   const {
     state: {lessons, students},
-    actions: {updateLesson, consumeLessonSlot, restoreLessonSlot}
+    actions: {updateLesson, adjustStudentBalance}
   } = useAppState();
   const toasts = useToasts();
 
   const lesson = lessons.find((item) => item.id === lessonId);
   const student = lesson ? students.find((item) => item.id === lesson.studentId) : null;
 
-  const [packageId, setPackageId] = useState(lesson?.packageId ?? "");
   const [date, setDate] = useState(lesson ? format(new Date(lesson.start), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
   const [time, setTime] = useState(lesson ? format(new Date(lesson.start), "HH:mm") : "10:00");
   const [duration, setDuration] = useState(lesson?.durationMinutes ?? 60);
-  const [price, setPrice] = useState(lesson?.price ?? 0);
+  const [price, setPrice] = useState(lesson?.price != null ? String(lesson.price) : "");
   const [notes, setNotes] = useState(lesson?.notes ?? "");
   const [status, setStatus] = useState(
     lesson?.status === "cancelled" ? "scheduled" : lesson?.status ?? "scheduled"
   );
-  const [refunded, setRefunded] = useState(lesson?.refunded ?? false);
-
-  const availablePackages = useMemo(() => {
-    if (!student) return [];
-    return student.packages || [];
-  }, [student]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -42,14 +35,12 @@ export default function EditLessonModal({lessonId, onClose}) {
 
   useEffect(() => {
     if (!lesson) return;
-    setPackageId(lesson.packageId ?? "");
     setDate(format(new Date(lesson.start), "yyyy-MM-dd"));
     setTime(format(new Date(lesson.start), "HH:mm"));
     setDuration(lesson.durationMinutes);
-    setPrice(lesson.price);
+    setPrice(lesson.price != null ? String(lesson.price) : "");
     setNotes(lesson.notes ?? "");
     setStatus(lesson.status === "cancelled" ? "scheduled" : lesson.status);
-    setRefunded(lesson.refunded);
   }, [lesson]);
 
   if (!lesson || !student) {
@@ -60,76 +51,33 @@ export default function EditLessonModal({lessonId, onClose}) {
     event.preventDefault();
 
     const startIso = new Date(`${date}T${time}:00`).toISOString();
-    const newPackageId = packageId || lesson.packageId;
-    const oldPackageId = lesson.packageId;
-    const oldRefunded = lesson.refunded;
-    const newRefunded = refunded;
+    const normalizedPrice = Math.max(0, parseCurrency(price, 0));
 
-    const packagesById = new Map((student.packages || []).map((pkg) => [pkg.id, pkg]));
+    const previousStatus = lesson.status === "cancelled" ? "scheduled" : lesson.status;
+    const previousPrice = lesson.price || 0;
 
-    const applyConsume = (pkgId) => {
-      if (!pkgId) return;
-      const pkg = packagesById.get(pkgId);
-      if (!pkg) {
-        toasts.addError("Пакет не найден. Сначала добавьте пакет ученику.");
-        throw new Error("package-not-found");
-      }
-      if (pkg.remainingLessons <= 0) {
-        toasts.addWarning("В выбранном пакете закончились уроки.");
-        throw new Error("no-slots");
-      }
-      consumeLessonSlot(student.id, pkgId);
-    };
-
-    const applyRestore = (pkgId) => {
-      if (!pkgId) return;
-      restoreLessonSlot(student.id, pkgId);
-    };
-
-    try {
-      if (newPackageId !== oldPackageId) {
-        if (!oldRefunded && oldPackageId) {
-          applyRestore(oldPackageId);
-        }
-        if (!newRefunded && newPackageId) {
-          applyConsume(newPackageId);
-        }
-      } else {
-        if (!oldRefunded && newRefunded && oldPackageId) {
-          applyRestore(oldPackageId);
-        }
-        if (oldRefunded && !newRefunded && newPackageId) {
-          applyConsume(newPackageId);
-        }
-      }
-
-      updateLesson(lesson.id, {
-        packageId: newPackageId,
-        start: startIso,
-        durationMinutes: Number(duration) || lesson.durationMinutes,
-        price: Number(price) || lesson.price,
-        notes: notes.trim(),
-        status,
-        refunded: newRefunded
-      });
-
-      toasts.addSuccess("Урок обновлён.");
-      onClose();
-    } catch (error) {
-      if (error.message !== "package-not-found" && error.message !== "no-slots") {
-        console.error(error);
-        toasts.addError("Не удалось обновить урок.");
-      }
+    let balanceDelta = 0;
+    if (previousStatus === "completed") {
+      balanceDelta += previousPrice;
     }
-  };
-
-  const handlePackageChange = (event) => {
-    const value = event.target.value;
-    setPackageId(value);
-    const pkg = availablePackages.find((p) => p.id === value);
-    if (pkg) {
-      setPrice(pkg.price);
+    if (status === "completed") {
+      balanceDelta -= normalizedPrice;
     }
+
+    updateLesson(lesson.id, {
+      start: startIso,
+      durationMinutes: Number(duration) || lesson.durationMinutes,
+      price: normalizedPrice,
+      notes: notes.trim(),
+      status
+    });
+
+    if (balanceDelta !== 0) {
+      adjustStudentBalance(student.id, balanceDelta);
+    }
+
+    toasts.addSuccess("Урок обновлён.");
+    onClose();
   };
 
   return createPortal(
@@ -170,28 +118,16 @@ export default function EditLessonModal({lessonId, onClose}) {
             />
           </label>
           <label className="form-field">
-            <span>Цена, ₽</span>
+            <span>Списать при проведении, ₽</span>
             <input
               type="number"
               min="0"
               step="50"
               value={price}
-              onChange={(event) => setPrice(Number(event.target.value))}
+              onChange={(event) => setPrice(event.target.value)}
             />
           </label>
         </div>
-
-        <label className="form-field">
-          <span>Пакет</span>
-          <select value={packageId} onChange={handlePackageChange}>
-            <option value="">Без пакета</option>
-            {availablePackages.map((pkg) => (
-              <option key={pkg.id} value={pkg.id}>
-                {`${formatCurrency(pkg.price)} • осталось ${pkg.remainingLessons}/${pkg.totalLessons}`}
-              </option>
-            ))}
-          </select>
-        </label>
 
         <label className="form-field">
           <span>Статус</span>
@@ -199,15 +135,6 @@ export default function EditLessonModal({lessonId, onClose}) {
             <option value="scheduled">Запланирован</option>
             <option value="completed">Проведён</option>
           </select>
-        </label>
-
-        <label className="switch">
-          <input
-            type="checkbox"
-            checked={refunded}
-            onChange={(event) => setRefunded(event.target.checked)}
-          />
-          <span>Возврат в пакет</span>
         </label>
 
         <label className="form-field">
@@ -229,11 +156,13 @@ export default function EditLessonModal({lessonId, onClose}) {
   );
 }
 
-function formatCurrency(amount) {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "currency",
-    currency: "RUB",
-    maximumFractionDigits: 2
-  }).format(amount);
+function parseCurrency(value, fallback = 0) {
+  if (typeof value === "number") return value;
+  if (!value) return fallback;
+  const normalized = value.toString().replace(/\s/g, "").replace(",", ".");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : fallback;
 }
 
+function formatCurrency(amount) {
+}

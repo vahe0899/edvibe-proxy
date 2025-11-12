@@ -3,7 +3,7 @@ import {useAppState} from "../../state/AppStateContext.jsx";
 import StudentCard from "./StudentCard.jsx";
 import EditStudentModal from "./EditStudentModal.jsx";
 
-export default function StudentList({onSelectStudentForLesson}) {
+export default function StudentList({onRequestLessonCreation}) {
   const {
     state: {students, lessons}
   } = useAppState();
@@ -50,7 +50,7 @@ export default function StudentList({onSelectStudentForLesson}) {
                 student={student}
                 lessons={lessonsByStudent.get(student.id) ?? []}
                 onEdit={() => setEditingStudentId(student.id)}
-                onSelectForLesson={() => onSelectStudentForLesson?.(student.id)}
+                onSelectForLesson={() => onRequestLessonCreation?.(student.id)}
               />
             ))}
           </div>

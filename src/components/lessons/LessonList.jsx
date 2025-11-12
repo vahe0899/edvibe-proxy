@@ -6,7 +6,7 @@ import {useToasts} from "../../state/ToastContext.jsx";
 export default function LessonList({onEditLesson}) {
   const {
     state: {lessons, students},
-    actions: {deleteLesson, restoreLessonSlot}
+    actions: {deleteLesson, adjustStudentBalance}
   } = useAppState();
   const toasts = useToasts();
 
@@ -19,8 +19,7 @@ export default function LessonList({onEditLesson}) {
         const student = students.find((s) => s.id === lesson.studentId);
         return {
           ...lesson,
-          studentName: student?.name ?? "Неизвестный ученик",
-          packageInfo: student?.packages?.find((pkg) => pkg.id === lesson.packageId) ?? null
+          studentName: student?.name ?? "Неизвестный ученик"
         };
       })
       .filter((lesson) => (showPast ? true : new Date(lesson.start) >= startOfDay(now)))
@@ -30,10 +29,12 @@ export default function LessonList({onEditLesson}) {
   }, [lessons, students, showPast]);
 
   const handleDelete = (lesson) => {
-    const confirmed = window.confirm("Удалить урок? Урок вернётся в пакет, если не был возвращён ранее.");
+    const confirmed = window.confirm(
+      "Удалить урок? Списанная сумма будет возвращена на баланс ученика."
+    );
     if (!confirmed) return;
-    if (!lesson.refunded && lesson.packageId) {
-      restoreLessonSlot(lesson.studentId, lesson.packageId);
+    if (lesson.status === "completed" && lesson.price > 0) {
+      adjustStudentBalance(lesson.studentId, lesson.price);
     }
     deleteLesson(lesson.id);
     toasts.addWarning("Урок удалён.");
@@ -92,12 +93,8 @@ function LessonCard({lesson, onEdit, onDelete}) {
       {lesson.notes && <p className="lesson-item__notes">{lesson.notes}</p>}
 
       <footer className="lesson-item__footer">
-        <span>Цена: {formatCurrency(lesson.price)}</span>
-        <span>
-          {lesson.packageInfo
-            ? `${lesson.packageInfo.remainingLessons}/${lesson.packageInfo.totalLessons} уроков в пакете`
-            : "Пакет не найден"}
-        </span>
+        <span>Стоимость: {formatCurrency(lesson.price)}</span>
+        <span>Статус: {statusLabel(lesson.status)}</span>
       </footer>
 
       <div className="lesson-item__actions">

@@ -1,7 +1,6 @@
 const TABS = [
-  {id: "dashboard", label: "Сводка"},
+  {id: "dashboard", label: "Статистика"},
   {id: "students", label: "Ученики"},
-  {id: "lessons", label: "Уроки"},
   {id: "calendar", label: "Календарь"}
 ];
 

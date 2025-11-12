@@ -3,10 +3,18 @@ import {useAppState} from "../../state/AppStateContext.jsx";
 import {useToasts} from "../../state/ToastContext.jsx";
 import {format} from "date-fns";
 
+const parseCurrency = (value, fallback = 0) => {
+  if (typeof value === "number") return value;
+  if (!value) return fallback;
+  const normalized = value.toString().replace(/\s/g, "").replace(",", ".");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : fallback;
+};
+
 export default function LessonForm({selectedStudentId, onStudentChange}) {
   const {
     state: {students, settings},
-    actions: {addLesson, consumeLessonSlot}
+    actions: {addLesson}
   } = useAppState();
   const toasts = useToasts();
 
@@ -16,39 +24,25 @@ export default function LessonForm({selectedStudentId, onStudentChange}) {
   );
 
   const [studentId, setStudentId] = useState(selectedStudentId ?? sortedStudents[0]?.id ?? "");
-  const [packageId, setPackageId] = useState("");
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [startTime, setStartTime] = useState("10:00");
   const [duration, setDuration] = useState(settings.defaultLessonDuration);
+  const [price, setPrice] = useState(
+    settings.defaultLessonPrice != null ? String(settings.defaultLessonPrice) : ""
+  );
   const [notes, setNotes] = useState("");
-
-  const availablePackages = useMemo(() => {
-    const student = students.find((item) => item.id === studentId);
-    if (!student) return [];
-    return (student.packages || []).filter((pkg) => pkg.remainingLessons > 0);
-  }, [students, studentId]);
 
   useEffect(() => {
     if (!selectedStudentId) return;
     setStudentId(selectedStudentId);
   }, [selectedStudentId]);
 
-  useEffect(() => {
-    if (availablePackages.length === 0) {
-      setPackageId("");
-      return;
-    }
-    if (!packageId || !availablePackages.some((pkg) => pkg.id === packageId)) {
-      setPackageId(availablePackages[0].id);
-    }
-  }, [studentId, availablePackages, packageId]);
-
   const resetForm = () => {
     setStudentId(selectedStudentId ?? sortedStudents[0]?.id ?? "");
-    setPackageId("");
     setDate(format(new Date(), "yyyy-MM-dd"));
     setStartTime("10:00");
     setDuration(settings.defaultLessonDuration);
+    setPrice(settings.defaultLessonPrice != null ? String(settings.defaultLessonPrice) : "");
     setNotes("");
   };
 
@@ -58,38 +52,25 @@ export default function LessonForm({selectedStudentId, onStudentChange}) {
       toasts.addWarning("Выберите ученика.");
       return;
     }
-    if (!packageId) {
-      toasts.addWarning("Выберите пакет уроков.");
-      return;
-    }
     if (!date || !startTime) {
       toasts.addWarning("Укажите дату и время урока.");
       return;
     }
 
-    const student = students.find((s) => s.id === studentId);
-    const pkg = availablePackages.find((p) => p.id === packageId);
-    if (!student || !pkg) {
-      toasts.addError("Не удалось найти выбранного ученика или пакет.");
-      return;
-    }
-
     const startIso = new Date(`${date}T${startTime}:00`).toISOString();
+    const normalizedPrice = Math.max(0, parseCurrency(price, settings.defaultLessonPrice));
 
-    const lesson = addLesson({
+    addLesson({
       studentId,
-      packageId,
       start: startIso,
       durationMinutes: Number(duration) || settings.defaultLessonDuration,
-      price: pkg.price,
+      price: normalizedPrice,
       notes: notes.trim()
     });
 
-    consumeLessonSlot(studentId, packageId);
-
-    toasts.addSuccess("Урок добавлен и списан из пакета.");
+    toasts.addSuccess("Урок добавлен в расписание.");
     setNotes("");
-    setPackageId("");
+    setPrice(settings.defaultLessonPrice != null ? String(settings.defaultLessonPrice) : "");
   };
 
   return (
@@ -107,7 +88,6 @@ export default function LessonForm({selectedStudentId, onStudentChange}) {
                 onChange={(event) => {
                   setStudentId(event.target.value);
                   onStudentChange?.(event.target.value);
-                  setPackageId("");
                 }}
                 required
               >
@@ -115,27 +95,6 @@ export default function LessonForm({selectedStudentId, onStudentChange}) {
                 {sortedStudents.map((student) => (
                   <option key={student.id} value={student.id}>
                     {student.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="form-field">
-              <span>Пакет уроков *</span>
-              <select
-                value={packageId}
-                onChange={(event) => setPackageId(event.target.value)}
-                required
-                disabled={!studentId || availablePackages.length === 0}
-              >
-                <option value="">
-                  {availablePackages.length === 0
-                    ? "Нет доступных пакетов"
-                    : "Выберите пакет"}
-                </option>
-                {availablePackages.map((pkg) => (
-                  <option key={pkg.id} value={pkg.id}>
-                    {`${formatCurrency(pkg.price)} • ${pkg.remainingLessons}/${pkg.totalLessons} уроков`}
                   </option>
                 ))}
               </select>
@@ -162,6 +121,18 @@ export default function LessonForm({selectedStudentId, onStudentChange}) {
               />
             </label>
 
+            <label className="form-field">
+              <span>Планируемая стоимость, ₽</span>
+              <input
+                type="number"
+                min="0"
+                step="50"
+                value={price}
+                onChange={(event) => setPrice(event.target.value)}
+                placeholder="Например, 1800"
+              />
+            </label>
+
             <label className="form-field form-field-wide">
               <span>Комментарий</span>
               <textarea
@@ -182,20 +153,11 @@ export default function LessonForm({selectedStudentId, onStudentChange}) {
             </button>
           </div>
           <p className="form-hint">
-            После сохранения количество уроков в выбранном пакете уменьшится на один. Для переноса
-            занятия воспользуйтесь кнопкой «Редактировать» в списке или календаре.
+            После проведения урока отметьте его в расписании как «Проведён» и укажите фактическую
+            сумму списания.
           </p>
         </div>
       </form>
     </section>
   );
 }
-
-function formatCurrency(amount) {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "currency",
-    currency: "RUB",
-    maximumFractionDigits: 2
-  }).format(amount);
-}
-

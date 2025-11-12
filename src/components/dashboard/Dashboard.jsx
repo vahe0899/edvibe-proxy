@@ -7,7 +7,6 @@ export default function Dashboard({onSelectStudent}) {
     state: {students, lessons}
   } = useAppState();
 
-  const [metric, setMetric] = useState("earnings"); // earnings | lessons
   const [period, setPeriod] = useState("month"); // month | year
 
   const now = useMemo(() => new Date(), []);
@@ -65,18 +64,8 @@ export default function Dashboard({onSelectStudent}) {
           lessonsCount
         };
       })
-      .sort((a, b) =>
-        metric === "earnings" ? b.earnings - a.earnings : b.lessonsCount - a.lessonsCount
-      );
-  }, [students, completedLessons, metric]);
-
-  const metricLabel = metric === "earnings" ? "Заработано" : "Проведено уроков";
-  const metricValue =
-    metric === "earnings" ? formatCurrency(totalEarnings) : formatNumber(totalLessons);
-  const secondaryMetric =
-    metric === "earnings"
-      ? {label: "Проведено уроков", value: formatNumber(totalLessons)}
-      : {label: "Заработано", value: formatCurrency(totalEarnings)};
+      .sort((a, b) => b.earnings - a.earnings);
+  }, [students, completedLessons]);
 
   return (
     <section className="panel">
@@ -85,22 +74,6 @@ export default function Dashboard({onSelectStudent}) {
       </div>
       <div className="panel-body dashboard">
         <div className="dashboard-controls">
-          <div className="segmented-control">
-            <button
-              type="button"
-              className={`segmented-control__button ${metric === "earnings" ? "is-active" : ""}`}
-              onClick={() => setMetric("earnings")}
-            >
-              Заработок
-            </button>
-            <button
-              type="button"
-              className={`segmented-control__button ${metric === "lessons" ? "is-active" : ""}`}
-              onClick={() => setMetric("lessons")}
-            >
-              Уроки
-            </button>
-          </div>
           <div className="segmented-control">
             <button
               type="button"
@@ -121,8 +94,8 @@ export default function Dashboard({onSelectStudent}) {
 
         <div className="stats-grid">
           <StatCard label="Ученики" value={summary.totalStudents} />
-          <StatCard label={metricLabel} value={metricValue} />
-          <StatCard label={secondaryMetric.label} value={secondaryMetric.value} />
+          <StatCard label="Заработано" value={formatCurrency(totalEarnings)} />
+          <StatCard label="Проведено уроков" value={formatNumber(totalLessons)} />
           <StatCard label="Ближайшие уроки" value={formatNumber(summary.upcomingLessons)} />
           <StatCard
             label="Средний чек"
@@ -142,8 +115,8 @@ export default function Dashboard({onSelectStudent}) {
                 <tr>
                   <th>Ученик</th>
                   <th>Контакты</th>
-                  <th>{metric === "earnings" ? "Заработано" : "Проведено уроков"}</th>
-                  <th>{metric === "earnings" ? "Проведено уроков" : "Заработано"}</th>
+                  <th>Заработано</th>
+                  <th>Проведено уроков</th>
                   <th></th>
                 </tr>
               </thead>
@@ -152,16 +125,8 @@ export default function Dashboard({onSelectStudent}) {
                   <tr key={stat.id}>
                     <td>{stat.name}</td>
                     <td>{stat.contact || "—"}</td>
-                    <td>
-                      {metric === "earnings"
-                        ? formatCurrency(stat.earnings)
-                        : formatNumber(stat.lessonsCount)}
-                    </td>
-                    <td>
-                      {metric === "earnings"
-                        ? formatNumber(stat.lessonsCount)
-                        : formatCurrency(stat.earnings)}
-                    </td>
+                    <td>{formatCurrency(stat.earnings)}</td>
+                    <td>{formatNumber(stat.lessonsCount)}</td>
                     <td>
                       <button
                         type="button"

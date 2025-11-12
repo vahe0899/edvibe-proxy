@@ -5,20 +5,31 @@ import NavigationTabs from "./components/layout/NavigationTabs.jsx";
 import Dashboard from "./components/dashboard/Dashboard.jsx";
 import NewStudentForm from "./components/forms/NewStudentForm.jsx";
 import StudentList from "./components/students/StudentList.jsx";
-import LessonForm from "./components/forms/LessonForm.jsx";
-import LessonList from "./components/lessons/LessonList.jsx";
 import CalendarView from "./components/calendar/CalendarView.jsx";
 import EditLessonModal from "./components/lessons/EditLessonModal.jsx";
+import CreateLessonModal from "./components/lessons/CreateLessonModal.jsx";
 import {AppStateProvider, useAppState} from "./state/AppStateContext.jsx";
 import {ToastProvider} from "./state/ToastContext.jsx";
+import LessonPriceSettings from "./components/forms/LessonPriceSettings.jsx";
+
+const roundToSlot = (date) => {
+  const result = new Date(date);
+  result.setSeconds(0, 0);
+  const remainder = result.getMinutes() % 30;
+  if (remainder !== 0) {
+    result.setMinutes(result.getMinutes() + (30 - remainder));
+  }
+  return result;
+};
 
 function AppShell() {
   const {
-    state: {lessons},
+    state: {lessons, students}
   } = useAppState();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [lessonStudentId, setLessonStudentId] = useState("");
   const [editingLessonId, setEditingLessonId] = useState(null);
+  const [creatingLesson, setCreatingLesson] = useState(null);
 
   const selectedLessonExists = useMemo(
     () => lessons.some((lesson) => lesson.id === editingLessonId),
@@ -31,14 +42,33 @@ function AppShell() {
     }
   }, [editingLessonId, selectedLessonExists]);
 
+  const defaultStudentId = students[0]?.id ?? "";
+
   const handleOpenLessonEditor = (lessonId) => {
     setEditingLessonId(lessonId);
-    setActiveTab("lessons");
+    setActiveTab("calendar");
   };
 
-  const handleSelectStudent = (studentId) => {
+  const handleRequestLessonCreation = ({studentId, start}) => {
+    const targetStudentId = studentId ?? lessonStudentId ?? defaultStudentId;
+    if (targetStudentId) {
+      setLessonStudentId(targetStudentId);
+    }
+    const baseStart = roundToSlot(start ?? new Date());
+    setCreatingLesson({
+      studentId: targetStudentId || "",
+      start: baseStart
+    });
+    setActiveTab("calendar");
+  };
+
+  const handleCreateLessonClose = () => {
+    setCreatingLesson(null);
+  };
+
+  const handleSelectStudentFromDashboard = (studentId) => {
     setLessonStudentId(studentId);
-    setActiveTab("lessons");
+    setActiveTab("students");
   };
 
   return (
@@ -48,33 +78,34 @@ function AppShell() {
       <main className="app-content container">
         {activeTab === "dashboard" && (
           <div className="content-section">
-            <Dashboard onSelectStudent={handleSelectStudent} />
+            <Dashboard onSelectStudent={handleSelectStudentFromDashboard} />
           </div>
         )}
 
         {activeTab === "students" && (
           <div className="content-section">
+            <LessonPriceSettings />
             <NewStudentForm />
-            <StudentList onSelectStudentForLesson={handleSelectStudent} />
-          </div>
-        )}
-
-        {activeTab === "lessons" && (
-          <div className="content-section">
-            <LessonForm
-              selectedStudentId={lessonStudentId}
-              onStudentChange={setLessonStudentId}
-            />
-            <LessonList onEditLesson={handleOpenLessonEditor} />
+            <StudentList onRequestLessonCreation={(studentId) => handleRequestLessonCreation({studentId})} />
           </div>
         )}
 
         {activeTab === "calendar" && (
           <div className="content-section">
-            <CalendarView onEditLesson={handleOpenLessonEditor} />
+            <CalendarView
+              onEditLesson={handleOpenLessonEditor}
+              onCreateLesson={({start}) => handleRequestLessonCreation({start})}
+            />
           </div>
         )}
       </main>
+      {creatingLesson && (
+        <CreateLessonModal
+          initialStudentId={creatingLesson.studentId}
+          initialStart={creatingLesson.start}
+          onClose={handleCreateLessonClose}
+        />
+      )}
       {editingLessonId && selectedLessonExists && (
         <EditLessonModal
           lessonId={editingLessonId}

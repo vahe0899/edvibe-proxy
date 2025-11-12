@@ -1,7 +1,7 @@
 import {createContext, useContext, useEffect, useMemo, useReducer} from "react";
 
-const STORAGE_KEY = "kitya-calendar-state-v2";
-const LATEST_VERSION = 2;
+const STORAGE_KEY = "kitya-calendar-state-v4";
+const LATEST_VERSION = 4;
 
 const AppStateContext = createContext(null);
 
@@ -10,7 +10,8 @@ const defaultState = () => ({
   students: [],
   lessons: [],
   settings: {
-    defaultLessonDuration: 60
+    defaultLessonDuration: 60,
+    defaultLessonPrice: 1800
   }
 });
 
@@ -55,6 +56,13 @@ function appReducer(state, action) {
       const lessons = state.lessons.filter((lesson) => lesson.id !== action.payload);
       return {...state, lessons};
     }
+    case "UPDATE_SETTINGS": {
+      const settings = {
+        ...state.settings,
+        ...action.payload
+      };
+      return {...state, settings};
+    }
     case "SET_STATE": {
       return action.payload;
     }
@@ -76,75 +84,76 @@ function loadState() {
 }
 
 function migrateState(state) {
-  if (!state || typeof state !== "object") return defaultState();
-  const merged = {...defaultState(), ...state};
+  if (!state || typeof state !== "object") {
+    return defaultState();
+  }
 
-  if (!Array.isArray(merged.students)) merged.students = [];
-  if (!Array.isArray(merged.lessons)) merged.lessons = [];
-  merged.settings = {...defaultState().settings, ...merged.settings};
+  const base = defaultState();
+  const merged = {...base, ...state};
+
+  merged.students = Array.isArray(merged.students) ? merged.students : [];
+  merged.lessons = Array.isArray(merged.lessons) ? merged.lessons : [];
+  merged.settings = {...base.settings, ...merged.settings};
 
   const nowIso = new Date().toISOString();
 
-  merged.students = merged.students.map((student) => {
-    const normalized = {
+  const students = merged.students.map((student) => {
+    const balance =
+      typeof student.balance === "number"
+        ? student.balance
+        : Array.isArray(student.packages)
+        ? student.packages.reduce((sum, pkg) => {
+            const remaining = Number(pkg.remainingLessons ?? pkg.rest ?? 0);
+            const price = Number(pkg.price ?? 0);
+            return sum + remaining * price;
+          }, 0)
+        : 0;
+
+    return {
       id: student.id || generateId(),
       name: student.name || "Без имени",
       contact: student.contact || "",
       notes: student.notes || "",
+      balance,
       archived: Boolean(student.archived),
       createdAt: student.createdAt || nowIso,
-      updatedAt: student.updatedAt || nowIso,
-      packages: Array.isArray(student.packages) ? student.packages : []
-    };
-
-    normalized.packages = normalized.packages
-      .map((pkg) => {
-        const price = Number(pkg.price) || 0;
-        const totalLessons = Number(pkg.totalLessons || pkg.count) || 0;
-        const remainingLessons =
-          Number(pkg.remainingLessons ?? pkg.rest ?? totalLessons) || totalLessons;
-        const consumedLessons =
-          Number(
-            pkg.consumedLessons ??
-              Math.max(0, totalLessons - remainingLessons)
-          ) || Math.max(0, totalLessons - remainingLessons);
-
-        if (totalLessons <= 0) return null;
-
-        return {
-          id: pkg.id || generateId(),
-          price,
-          totalLessons,
-          remainingLessons: Math.max(0, Math.min(totalLessons, remainingLessons)),
-          consumedLessons: Math.max(0, Math.min(totalLessons, consumedLessons)),
-          createdAt: pkg.createdAt || nowIso,
-          updatedAt: pkg.updatedAt || nowIso
-        };
-      })
-      .filter(Boolean);
-
-    return normalized;
-  });
-
-  merged.lessons = merged.lessons.map((lesson) => {
-    const price = Number(lesson.price) || 0;
-    return {
-      id: lesson.id || generateId(),
-      studentId: lesson.studentId,
-      packageId: lesson.packageId || null,
-      start: lesson.start,
-      durationMinutes: Number(lesson.durationMinutes) || merged.settings.defaultLessonDuration,
-      price,
-      notes: lesson.notes || "",
-      status: lesson.status || "scheduled",
-      refunded: Boolean(lesson.refunded),
-      createdAt: lesson.createdAt || nowIso,
-      updatedAt: lesson.updatedAt || nowIso
+      updatedAt: student.updatedAt || nowIso
     };
   });
 
-  merged.version = LATEST_VERSION;
-  return merged;
+  const lessons = merged.lessons
+    .map((lesson) => {
+      if (!lesson.studentId || !lesson.start) return null;
+      return {
+        id: lesson.id || generateId(),
+        studentId: lesson.studentId,
+        start: lesson.start,
+        durationMinutes: Number(lesson.durationMinutes) || merged.settings.defaultLessonDuration,
+        price: Number(lesson.price) || 0,
+        notes: lesson.notes || "",
+        status:
+          lesson.status === "cancelled" ? "scheduled" : lesson.status || "scheduled",
+        createdAt: lesson.createdAt || nowIso,
+        updatedAt: lesson.updatedAt || nowIso
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    ...base,
+    ...merged,
+    students,
+    lessons,
+    settings: {
+      ...base.settings,
+      ...merged.settings,
+      defaultLessonPrice:
+        typeof merged.settings?.defaultLessonPrice === "number"
+          ? merged.settings.defaultLessonPrice
+          : base.settings.defaultLessonPrice
+    },
+    version: LATEST_VERSION
+  };
 }
 
 export function AppStateProvider({children}) {
@@ -155,39 +164,18 @@ export function AppStateProvider({children}) {
   }, [state]);
 
   const actions = useMemo(() => {
-    const updateStudentPackages = (studentId, updater) => {
-      const student = state.students.find((item) => item.id === studentId);
-      if (!student) return;
-      const updatedPackages = updater(student.packages).map((pkg) => ({
-        ...pkg,
-        updatedAt: new Date().toISOString()
-      }));
-      dispatch({
-        type: "UPDATE_STUDENT",
-        payload: {id: studentId, update: {packages: updatedPackages, updatedAt: new Date().toISOString()}}
-      });
-    };
-
     return {
-      addStudent: (data) => {
+      addStudent: ({name, contact, notes, balance = 0}) => {
         const nowIso = new Date().toISOString();
         const student = {
           id: generateId(),
-          name: data.name.trim(),
-          contact: data.contact.trim(),
-          notes: data.notes.trim(),
+          name: name.trim(),
+          contact: contact.trim(),
+          notes: notes.trim(),
+          balance: Math.round(Number(balance || 0) * 100) / 100,
           archived: false,
           createdAt: nowIso,
-          updatedAt: nowIso,
-          packages: data.packages.map((pkg) => ({
-            id: generateId(),
-            price: pkg.price,
-            totalLessons: pkg.count,
-            remainingLessons: pkg.count,
-            consumedLessons: 0,
-            createdAt: nowIso,
-            updatedAt: nowIso
-          }))
+          updatedAt: nowIso
         };
         dispatch({type: "ADD_STUDENT", payload: student});
         return student;
@@ -199,47 +187,31 @@ export function AppStateProvider({children}) {
         });
       },
       deleteStudent: (studentId) => dispatch({type: "DELETE_STUDENT", payload: studentId}),
-      addPackageToStudent: (studentId, pkg) => {
-        updateStudentPackages(studentId, (packages) => [
-          ...packages,
-          {
-            id: generateId(),
-            price: pkg.price,
-            totalLessons: pkg.count,
-            remainingLessons: pkg.count,
-            consumedLessons: 0,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+      adjustStudentBalance: (studentId, delta) => {
+        const student = state.students.find((item) => item.id === studentId);
+        if (!student) return;
+        const nextBalance = Math.round((student.balance + delta) * 100) / 100;
+        dispatch({
+          type: "UPDATE_STUDENT",
+          payload: {
+            id: studentId,
+            update: {balance: nextBalance, updatedAt: new Date().toISOString()}
           }
-        ]);
-      },
-      updateStudentPackage: (studentId, packageId, update) => {
-        updateStudentPackages(studentId, (packages) =>
-          packages.map((pkg) =>
-            pkg.id === packageId
-              ? {
-                  ...pkg,
-                  ...update,
-                  totalLessons: update.totalLessons ?? pkg.totalLessons,
-                  remainingLessons: update.remainingLessons ?? pkg.remainingLessons,
-                  price: update.price ?? pkg.price
-                }
-              : pkg
-          )
-        );
-      },
-      deleteStudentPackage: (studentId, packageId) => {
-        updateStudentPackages(studentId, (packages) => packages.filter((pkg) => pkg.id !== packageId));
+        });
       },
       addLesson: (lessonData) => {
         const nowIso = new Date().toISOString();
         const lesson = {
           id: generateId(),
-          ...lessonData,
+          studentId: lessonData.studentId,
+          start: lessonData.start,
+          durationMinutes:
+            Number(lessonData.durationMinutes) || state.settings.defaultLessonDuration,
+          price: Number(lessonData.price ?? 0),
+          notes: (lessonData.notes || "").trim(),
+          status: lessonData.status || "scheduled",
           createdAt: nowIso,
-          updatedAt: nowIso,
-          refunded: false,
-          status: "scheduled"
+          updatedAt: nowIso
         };
         dispatch({type: "ADD_LESSON", payload: lesson});
         return lesson;
@@ -251,35 +223,11 @@ export function AppStateProvider({children}) {
         });
       },
       deleteLesson: (lessonId) => dispatch({type: "DELETE_LESSON", payload: lessonId}),
-      consumeLessonSlot: (studentId, packageId) => {
-        updateStudentPackages(studentId, (packages) =>
-          packages.map((pkg) => {
-            if (pkg.id !== packageId) return pkg;
-            if (pkg.remainingLessons <= 0) return pkg;
-            const remainingLessons = pkg.remainingLessons - 1;
-            return {
-              ...pkg,
-              remainingLessons,
-              consumedLessons: Math.max(0, pkg.totalLessons - remainingLessons)
-            };
-          })
-        );
-      },
-      restoreLessonSlot: (studentId, packageId) => {
-        updateStudentPackages(studentId, (packages) =>
-          packages.map((pkg) => {
-            if (pkg.id !== packageId) return pkg;
-            const remainingLessons = Math.min(pkg.totalLessons, pkg.remainingLessons + 1);
-            return {
-              ...pkg,
-              remainingLessons,
-              consumedLessons: Math.max(0, pkg.totalLessons - remainingLessons)
-            };
-          })
-        );
-      },
       setStateFromImport: (newState) => {
         dispatch({type: "SET_STATE", payload: migrateState(newState)});
+      },
+      updateDefaultLessonPrice: (price) => {
+        dispatch({type: "UPDATE_SETTINGS", payload: {defaultLessonPrice: price}});
       }
     };
   }, [state]);

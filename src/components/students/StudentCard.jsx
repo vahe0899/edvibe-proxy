@@ -3,39 +3,36 @@ import {ru} from "date-fns/locale";
 import {useToasts} from "../../state/ToastContext.jsx";
 import {useAppState} from "../../state/AppStateContext.jsx";
 
+const parseCurrency = (value, fallback = 0) => {
+  if (typeof value === "number") return value;
+  if (!value) return fallback;
+  const normalized = value.toString().replace(/\s/g, "").replace(",", ".");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : fallback;
+};
+
 export default function StudentCard({student, lessons, onEdit, onSelectForLesson}) {
   const {
-    actions: {deleteStudent}
+    state: {settings},
+    actions: {deleteStudent, adjustStudentBalance}
   } = useAppState();
   const toasts = useToasts();
 
   const now = new Date();
-  const totalLessons = lessons.length;
-  const completedLessons = lessons.filter((lesson) => lesson.status === "completed").length;
-  const upcomingLessons = lessons.filter(
-    (lesson) => lesson.status === "scheduled" && new Date(lesson.start) >= now
-  );
-  const remainingLessons = (student.packages || []).reduce(
-    (sum, pkg) => sum + (pkg.remainingLessons || 0),
-    0
-  );
-  const totalPackageLessons = (student.packages || []).reduce(
-    (sum, pkg) => sum + (pkg.totalLessons || 0),
-    0
-  );
-  const consumedLessons = (student.packages || []).reduce(
-    (sum, pkg) => sum + ((pkg.totalLessons || 0) - (pkg.remainingLessons || 0)),
-    0
-  );
-  const consumedValue = (student.packages || []).reduce(
-    (sum, pkg) =>
-      sum + (Math.max(0, (pkg.totalLessons || 0) - (pkg.remainingLessons || 0)) * (pkg.price || 0)),
-    0
-  );
-  const remainingValue = (student.packages || []).reduce(
-    (sum, pkg) => sum + (Math.max(0, pkg.remainingLessons || 0) * (pkg.price || 0)),
-    0
-  );
+  const completedLessons = lessons.filter((lesson) => lesson.status === "completed");
+  const totalEarned = completedLessons.reduce((sum, lesson) => sum + (lesson.price || 0), 0);
+  const upcomingLessons = lessons
+    .filter((lesson) => lesson.status === "scheduled" && new Date(lesson.start) >= now)
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+  const nextLesson = upcomingLessons[0];
+  const lastLesson = completedLessons
+    .slice()
+    .sort((a, b) => new Date(b.start) - new Date(a.start))[0];
+
+  const currentRate = settings.defaultLessonPrice || 0;
+  const lessonsAtRate = currentRate > 0 ? Math.floor(student.balance / currentRate) : null;
+  const remainderAmount =
+    currentRate > 0 ? Math.round((student.balance - (lessonsAtRate || 0) * currentRate) * 100) / 100 : 0;
 
   const handleDelete = () => {
     const confirmed = window.confirm(
@@ -46,6 +43,26 @@ export default function StudentCard({student, lessons, onEdit, onSelectForLesson
     toasts.addWarning("Ученик и все уроки удалены.");
   };
 
+  const handleAdjustBalance = (mode) => {
+    const promptText =
+      mode === "topup"
+        ? `На сколько пополнить баланс ученика «${student.name}»?`
+        : `Сколько списать с баланса ученика «${student.name}»?`;
+
+    const input = window.prompt(promptText, "1000");
+    if (input === null) return;
+
+    const amount = Math.round(parseCurrency(input, 0) * 100) / 100;
+    if (amount === 0) {
+      toasts.addInfo("Изменение баланса отменено.");
+      return;
+    }
+
+    const delta = mode === "topup" ? amount : -Math.abs(amount);
+    adjustStudentBalance(student.id, delta);
+    toasts.addSuccess("Баланс обновлён.");
+  };
+
   return (
     <article className="student-card">
       <header className="student-card__header">
@@ -53,54 +70,52 @@ export default function StudentCard({student, lessons, onEdit, onSelectForLesson
           <h3 className="student-card__name">{student.name}</h3>
           {student.contact && <p className="student-card__contact">{student.contact}</p>}
         </div>
-        <div className={`student-card__balance ${remainingLessons === 0 ? "empty" : ""}`}>
-          {remainingLessons > 0
-            ? `${remainingLessons} урок(ов) осталось`
-            : totalPackageLessons > 0
-            ? "Пакеты израсходованы"
-            : "Пакеты не добавлены"}
-        </div>
+        <div className="student-card__balance">{formatCurrency(student.balance)}</div>
       </header>
-
-      <div className="student-card__stats-grid">
-        <StatBlock label="Стоимость урока" value={formatPackagesPrices(student.packages) || "—"} />
-        <StatBlock
-          label="Уроков в пакетах"
-          value={totalPackageLessons > 0 ? `${remainingLessons}/${totalPackageLessons}` : "—"}
-        />
-        <StatBlock
-          label="Проведено уроков"
-          value={`${completedLessons} из ${totalLessons}`}
-        />
-        <StatBlock
-          label="Ближайшие уроки"
-          value={`${upcomingLessons.length}`}
-        />
-        <StatBlock
-          label="Списано на сумму"
-          value={consumedValue > 0 ? formatCurrency(consumedValue) : "—"}
-        />
-        <StatBlock
-          label="Остаток на пакетах"
-          value={remainingValue > 0 ? formatCurrency(remainingValue) : "—"}
-        />
-      </div>
 
       {student.notes && <p className="student-card__notes">{student.notes}</p>}
 
+      <div className="student-card__stats-grid">
+        <StatBlock label="Баланс" value={formatCurrency(student.balance)} />
+        <StatBlock label="Проведено уроков" value={formatNumber(completedLessons.length)} />
+        <StatBlock label="Заработано" value={formatCurrency(totalEarned)} />
+        <StatBlock label="Предстоящие уроки" value={formatNumber(upcomingLessons.length)} />
+        <StatBlock
+          label="Ближайшее занятие"
+          value={nextLesson ? formatDateTime(nextLesson.start) : "—"}
+        />
+        <StatBlock
+          label="Прошлое занятие"
+          value={lastLesson ? formatDateTime(lastLesson.start) : "—"}
+        />
+        <StatBlock
+          label={`При тарифе ${currentRate > 0 ? formatCurrency(currentRate) : "—"}`}
+          value={
+            currentRate > 0
+              ? `${formatNumber(lessonsAtRate || 0)} урок(ов)` +
+                (remainderAmount > 0 ? ` + ${formatCurrency(remainderAmount)}` : "")
+              : "—"
+          }
+        />
+      </div>
+
       <div className="student-card__actions">
-        <button className="btn secondary" type="button" onClick={() => onEdit?.()}>
-          Редактировать
+        <button className="btn secondary" type="button" onClick={() => handleAdjustBalance("topup")}>
+          Пополнить баланс
+        </button>
+        <button className="btn secondary" type="button" onClick={() => handleAdjustBalance("charge")}>
+          Списать вручную
         </button>
         <button className="btn primary" type="button" onClick={() => onSelectForLesson?.()}>
           Записать на урок
+        </button>
+        <button className="btn ghost" type="button" onClick={() => onEdit?.()}>
+          Редактировать
         </button>
         <button className="btn danger" type="button" onClick={handleDelete}>
           Удалить
         </button>
       </div>
-
-      <StudentPackages packages={student.packages} />
 
       <div className="student-card__lessons">
         <strong>Ближайшие уроки</strong>
@@ -110,7 +125,7 @@ export default function StudentCard({student, lessons, onEdit, onSelectForLesson
           <ul>
             {upcomingLessons.slice(0, 5).map((lesson) => (
               <li key={lesson.id}>
-                {`${formatDateTime(lesson.start)} • ${formatCurrency(lesson.price)} • ${lesson.durationMinutes} мин`}
+                {formatDateTime(lesson.start)} • {lesson.durationMinutes} мин
               </li>
             ))}
           </ul>
@@ -129,60 +144,12 @@ function StatBlock({label, value}) {
   );
 }
 
-function StudentPackages({packages}) {
-  if (!packages || packages.length === 0) {
-    return <div className="student-card__packages student-card__packages--empty">Пакеты не добавлены.</div>;
-  }
-
-  const sorted = [...packages].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-
-  return (
-    <div className="student-card__packages">
-      <strong>Пакеты уроков</strong>
-      <ul className="packages-list">
-        {sorted.map((pkg) => (
-          <li
-            key={pkg.id}
-            className={`packages-list__item ${pkg.remainingLessons === 0 ? "packages-list__item--empty" : ""}`}
-          >
-            <div className="packages-list__header">
-              <span className="packages-list__price">{formatCurrency(pkg.price)}</span>
-              <span className="packages-list__count">
-                {pkg.remainingLessons}/{pkg.totalLessons} уроков
-              </span>
-            </div>
-            <div className="packages-list__meta">
-              {pkg.remainingLessons > 0
-                ? `Осталось ${pkg.remainingLessons}`
-                : "Израсходован"}{" "}
-              • обновлён {formatDate(pkg.updatedAt ?? pkg.createdAt)}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function formatPackagesPrices(packages) {
-  if (!packages || packages.length === 0) return "";
-  const active = packages.filter((pkg) => pkg.remainingLessons > 0);
-  if (active.length === 0) {
-    const uniquePrices = Array.from(new Set(packages.map((pkg) => formatCurrency(pkg.price))));
-    return uniquePrices.join(" • ");
-  }
-  const uniqueActive = Array.from(new Set(active.map((pkg) => formatCurrency(pkg.price))));
-  return uniqueActive.join(" • ");
+function formatNumber(value) {
+  return value.toLocaleString("ru-RU");
 }
 
 function formatDateTime(isoString) {
   return `${format(new Date(isoString), "dd MMM, HH:mm", {locale: ru})}`;
-}
-
-function formatDate(isoString) {
-  return format(new Date(isoString), "dd MMM yyyy", {locale: ru});
 }
 
 function formatCurrency(amount) {
